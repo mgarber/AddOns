@@ -26,10 +26,10 @@ ToMeta <- function(genes, data=NULL, to = "mergedname"){
     metanames <- as.vector(data[ind[!is.na(ind)],to]) # make it not factor class
     genesinmeta <- genes[!is.na(ind)]
     genes[!is.na(ind)] <- metanames
-    message(paste0(paste(genesinmeta, collapse = " ")," is/are in metagenes"))
-    print(data[data[,to] %in% metanames, ])
+    #message(paste0(paste(genesinmeta, collapse = " ")," is/are in metagenes"))
+    #print(data[data[,to] %in% metanames, ])
   }else{
-    message("Not in metagenes")
+    #message("Not in metagenes")
   }
   return(genes)
 }
