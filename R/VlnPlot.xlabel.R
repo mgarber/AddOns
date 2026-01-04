@@ -12,15 +12,43 @@
 
 
 
-VlnPlot.xlabel <- function (object, gene, group.by, group.order = NULL, split.order = NULL, title = "", assay = "RNA", slot = "data", log_scale = F,
-                            colors = NULL, split.by = NULL, spread = NULL, jitter_pts = T,
-                            plot_mean = T, size = 1, sig = 3, number_labels = T, text_sizes = c(15, 10, 7, 10, 7, 7, 2.5), alpha = 0.5, theme = "classic")
+VlnPlot.xlabel <- function (object,
+                            gene,
+                            group.by,
+                            group.order = NULL,
+                            split.order = NULL,
+                            title = "",
+                            assay = "RNA",
+                            layer = "data",
+                            slot = NULL,  ## Deprecated only here to support old versions of Seurat, use layer instead
+                            log_scale = F,
+                            colors = NULL,
+                            split.by = NULL,
+                            spread = NULL,
+                            jitter_pts = T,
+                            plot_mean = T,
+                            size = 1,
+                            sig = 3,
+                            number_labels = T,
+                            text_sizes = c(15, 10, 7, 10, 7, 7, 2.5),
+                            alpha = 0.5,
+                            theme = "classic")
 {
+  # --- Backwards compatibility: if someone passes slot=, map it to layer ---
+  if (!is.null(slot)) {
+    layer <- slot
+  }
+
+  x_var <- rlang::sym(group.by)
+  y_var <- rlang::sym("plot")
+  fill_var <- rlang::sym(group.by)
+  col_var  <- rlang::sym(group.by)
 
   df <- object@meta.data[, colnames(object@meta.data) %in% c(gene, group.by, split.by), drop = F]
   assay <- assay %||% DefaultAssay(object = object)
   DefaultAssay(object = object) <- assay
-  geneExp <- FetchData(object = object, vars = gene, slot = slot)
+  # Seurat v5: use layer= instead of slot=
+  geneExp <- SeuratObject::FetchData(object = object, vars = gene, layer = layer)
   if (sum(geneExp) == 0){
     warning("No expression in data")
     return()
@@ -78,20 +106,29 @@ VlnPlot.xlabel <- function (object, gene, group.by, group.order = NULL, split.or
   g <- g + theme(legend.position = "none", plot.title = element_text(hjust = 0.5),
                  axis.title.x = element_blank(),
                  axis.ticks.x = element_blank(), axis.text.x = element_text(hjust = 1, vjust = 1, angle = 90))
-  if (jitter_pts == T)
-    g <- g + geom_jitter(aes_string(x = group.by, y = "plot",
-                                    col = group.by), width = 0.2, size = size)
-  g <- g + geom_violin(aes_string(x = group.by, y = "plot",
-                                  fill = group.by), col = "black", trim = T, scale = "width", alpha = alpha)
-  if (number_labels == T) {
-    g <- g + stat_summary(aes_string(x = group.by, y = "value"),
-                          fun.data = function(x) {
-                            return(c(y = -max(df$plot)/25, label = length(x)))
-                          }, colour = "black", geom = "text", size = text_sizes[7])
-    g <- g + stat_summary(aes_string(x = group.by, y = "value"),
-                          fun.data = function(x) {
-                            return(c(y = -max(df$plot)/10, label = round(mean(as.numeric(x > 0)), sig)))
-                          }, colour = "black", geom = "text", size = text_sizes[7])
+  if (isTRUE(jitter_pts)) {
+    g <- g + geom_jitter(
+      aes(x = !!x_var, y = !!y_var, col = !!col_var),
+      width = 0.2, size = size
+    )
+  }
+
+  g <- g + geom_violin(
+    aes(x = !!x_var, y = !!y_var, fill = !!fill_var),
+    col = "black", trim = TRUE, scale = "width", alpha = alpha
+  )
+
+  if (isTRUE(number_labels)) {
+    g <- g + stat_summary(
+      aes(x = !!x_var, y = value),
+      fun.data = function(x) c(y = -max(df$plot)/25, label = length(x)),
+      colour = "black", geom = "text", size = text_sizes[7]
+    )
+    g <- g + stat_summary(
+      aes(x = !!x_var, y = value),
+      fun.data = function(x) c(y = -max(df$plot)/10, label = round(mean(as.numeric(x > 0)), sig)),
+      colour = "black", geom = "text", size = text_sizes[7]
+    )
   }
   if (plot_mean == TRUE) {
     scale <- max(df$plot)/max(tapply(df$value, INDEX = as.list(df[, colnames(df) %in% c(group.by, split.by), drop = F]),
@@ -99,14 +136,19 @@ VlnPlot.xlabel <- function (object, gene, group.by, group.order = NULL, split.or
     g <- g + suppressWarnings(stat_summary(aes_string(x = group.by, y = "value"), fun.y = function(x) mean(x) * (scale * 0.5), colour = "black", geom = "point", size = 2))
     g <- g + scale_y_continuous(sec.axis = sec_axis(~./(scale * 0.5), name = "Mean Expression"))
   }
-  if (length(split.by) == 1) {
-    g <- g + facet_grid(facets = reformulate(split.by), scales = "free_x", space = "free_x")
-  }
-  else if (length(split.by) == 2) {
-    g <- g + facet_grid(facets = reformulate(split.by[1], split.by[2]), scales = "free_x", space = "free_x")
-  }
-  else if (length(split.by) > 2) {
-    stop("Parameter split.by needs to be a string with equal or less than two variables.")
+  if (!is.null(split.by)) {
+    if (length(split.by) == 1) {
+      g <- g + facet_grid(rows = vars(.data[[split.by]]), scales = "free_x", space = "free_x")
+    } else if (length(split.by) == 2) {
+      g <- g + facet_grid(
+        rows = vars(.data[[split.by[1]]]),
+        cols = vars(.data[[split.by[2]]]),
+        scales = "free_x",
+        space  = "free_x"
+      )
+    } else if (length(split.by) > 2) {
+      stop("Parameter split.by needs to be a string with equal or less than two variables.")
+    }
   }
   if (!is.null(split.by))
     g <- g + theme(strip.text.x = element_text(size = text_sizes[6]))
